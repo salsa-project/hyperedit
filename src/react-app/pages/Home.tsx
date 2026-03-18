@@ -1233,7 +1233,7 @@ export default function Home() {
 
   // Handle rendering from pre-approved concept (skips analysis, uses provided scenes)
   const handleRenderFromConcept = useCallback(async (concept: {
-    type: 'intro' | 'outro' | 'transition' | 'highlight';
+    type: string;
     scenes: Array<{
       id: string;
       type: string;
@@ -1246,7 +1246,10 @@ export default function Home() {
     contentSummary: string;
     startTime?: number; // Optional: explicit placement time
   }) => {
+    console.log('[Home] handleRenderFromConcept called!', { concept, sessionId: session?.sessionId });
+
     if (!session?.sessionId) {
+      console.error('[Home] No session ID available!');
       throw new Error('Please upload a video first to start a session');
     }
 

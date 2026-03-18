@@ -38,19 +38,14 @@ app.post("/api/ai-edit/start", async (c) => {
             apiKey: c.env.GEMINI_API_KEY,
           });
 
-          const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt,
-            config: {
-              systemInstruction: `You are a video editing AI assistant that helps users edit their videos using FFmpeg commands.
-
+          const geminiResult = await ai.models.generateContent({
+            model: "gemini-2.0-flash-lite-001",
+            contents: [{ role: "user", parts: [{ text: `System Instruction: You are a video editing AI assistant that helps users edit their videos using FFmpeg commands.
 When the user describes what they want to do with their video, you should:
 1. Understand the editing request
 2. Generate the appropriate FFmpeg command to accomplish it
 3. Explain what the command will do in simple terms
-
 IMPORTANT: Always use "input.mp4" as the input filename and "output.mp4" as the output filename in your commands.
-
 Return your response as valid JSON with exactly this structure:
 {"command": "the FFmpeg command", "explanation": "simple explanation"}
 
@@ -74,23 +69,21 @@ Common video editing tasks:
 - Remove first 10 seconds: ffmpeg -y -i input.mp4 -ss 10 -c copy output.mp4
 - Convert to MP4 (re-encode): ffmpeg -y -i input.mp4 -c:v libx264 -c:a aac output.mp4
 
-Always use -y flag to overwrite output. Provide safe, valid FFmpeg commands.`,
-              responseMimeType: "application/json",
-            },
+User Prompt: ${prompt}` }] }],
           });
 
-          const responseText = response.text || "{}";
-          let result;
+          const responseText = geminiResult.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+          let editResult;
           try {
-            result = JSON.parse(responseText);
+            editResult = JSON.parse(responseText);
           } catch {
             const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-            result = jsonMatch
+            editResult = jsonMatch
               ? JSON.parse(jsonMatch[0])
               : { command: "", explanation: "Failed to parse response" };
           }
 
-          pendingRequests.set(jobId, { status: "complete", result });
+          pendingRequests.set(jobId, { status: "complete", result: editResult });
         } catch (error) {
           console.error("AI edit error:", error);
           pendingRequests.set(jobId, {
@@ -144,19 +137,14 @@ app.post("/api/ai-edit", async (c) => {
       apiKey: c.env.GEMINI_API_KEY,
     });
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: {
-        systemInstruction: `You are a video editing AI assistant that helps users edit their videos using FFmpeg commands.
-
+    const genResult = await ai.models.generateContent({
+      model: "gemini-2.0-flash-lite-001",
+      contents: [{ role: "user", parts: [{ text: `System Instruction: You are a video editing AI assistant that helps users edit their videos using FFmpeg commands.
 When the user describes what they want to do with their video, you should:
 1. Understand the editing request
 2. Generate the appropriate FFmpeg command to accomplish it
 3. Explain what the command will do in simple terms
-
 IMPORTANT: Always use "input.mp4" as the input filename and "output.mp4" as the output filename in your commands.
-
 Return your response as valid JSON with exactly this structure:
 {"command": "the FFmpeg command", "explanation": "simple explanation"}
 
@@ -167,23 +155,21 @@ Common video editing tasks:
 - Remove background noise: ffmpeg -y -i input.mp4 -af "highpass=f=200,lowpass=f=3000,afftdn=nf=-25" -c:v copy output.mp4
 - Resize: ffmpeg -y -i input.mp4 -vf "scale=1280:720" output.mp4
 
-Always use -y flag to overwrite output. Provide safe, valid FFmpeg commands.`,
-        responseMimeType: "application/json",
-      },
+User Prompt: ${prompt}` }] }],
     });
 
-    const responseText = response.text || "{}";
-    let result;
+    const responseText = genResult.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    let editResult;
     try {
-      result = JSON.parse(responseText);
+      editResult = JSON.parse(responseText);
     } catch {
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      result = jsonMatch
+      editResult = jsonMatch
         ? JSON.parse(jsonMatch[0])
         : { command: "", explanation: "Failed to parse response" };
     }
 
-    return c.json({ success: true, ...result });
+    return c.json({ success: true, ...editResult });
   } catch (error) {
     console.error("AI edit error:", error);
     return c.json(

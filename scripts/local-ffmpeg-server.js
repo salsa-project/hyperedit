@@ -1,6 +1,7 @@
+import path from 'path';
 import http from 'http';
 import { spawn, execSync } from 'child_process';
-import { createWriteStream, createReadStream, unlinkSync, mkdirSync, existsSync, writeFileSync, readFileSync, readdirSync, statSync } from 'fs';
+import fs, { createWriteStream, createReadStream, unlinkSync, mkdirSync, existsSync, writeFileSync, readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
@@ -33,7 +34,7 @@ if (process.env.FAL_API_KEY && !process.env.FAL_KEY) {
   process.env.FAL_KEY = process.env.FAL_API_KEY;
 }
 
-const PORT = 3333;
+const PORT = parseInt(process.env.PORT) || 3333;
 const TEMP_DIR = join(tmpdir(), 'hyperedit-ffmpeg');
 const SESSIONS_DIR = join(TEMP_DIR, 'sessions');
 
@@ -270,7 +271,7 @@ function cleanupSession(sessionId) {
   const session = sessions.get(sessionId);
   if (session) {
     try {
-      const { rmSync } = require('fs');
+      const { rmSync } = fs;
       rmSync(session.dir, { recursive: true, force: true });
       sessions.delete(sessionId);
       console.log(`[Session] Cleaned up: ${sessionId}`);
@@ -4409,13 +4410,36 @@ ${attachedAssetIds?.length ? `- IMPORTANT: Include media scenes to showcase the 
       '--height', String(height),
       '--codec', 'h264',
       '--overwrite',
-      '--gl=angle', // Use Metal GPU acceleration on macOS
+      '--gl=angle',
+      '--timeout', '60000',
     ];
 
     await new Promise((resolve, reject) => {
-      const proc = spawn('npx', remotionArgs, {
+      const isWin = process.platform === 'win32';
+      let cmd = 'npx';
+      let finalArgs = [...remotionArgs];
+      
+      const cliPath = path.join(process.cwd(), 'node_modules', '@remotion', 'cli', 'bin', 'remotion.js');
+      
+      if (existsSync(cliPath)) {
+        cmd = 'node';
+        // When calling the script via node, we don't need 'remotion' if it was there as an npx arg
+        if (finalArgs[0] === 'remotion') {
+           finalArgs.shift();
+        }
+        finalArgs.unshift(cliPath);
+      } else if (isWin) {
+        cmd = 'npx.cmd';
+      }
+      
+      console.log(`[${jobId}] Spawning Remotion via: ${cmd}`);
+      console.log(`[${jobId}] Args: ${JSON.stringify(finalArgs)}`);
+      
+      const proc = spawn(cmd, finalArgs, {
         cwd: process.cwd(),
         stdio: ['pipe', 'pipe', 'pipe'],
+        shell: isWin, 
+        windowsHide: true
       });
 
       let stderr = '';
@@ -4827,13 +4851,36 @@ Return ONLY the complete JSON structure with your minimal change applied. No mar
       '--height', String(height),
       '--codec', 'h264',
       '--overwrite',
-      '--gl=angle', // Use Metal GPU acceleration on macOS
+      '--gl=angle',
+      '--timeout', '60000',
     ];
 
     await new Promise((resolve, reject) => {
-      const proc = spawn('npx', remotionArgs, {
+      const isWin = process.platform === 'win32';
+      let cmd = 'npx';
+      let finalArgs = [...remotionArgs];
+      
+      const cliPath = path.join(process.cwd(), 'node_modules', '@remotion', 'cli', 'bin', 'remotion.js');
+      
+      if (existsSync(cliPath)) {
+        cmd = 'node';
+        // When calling the script via node, we don't need 'remotion' if it was there as an npx arg
+        if (finalArgs[0] === 'remotion') {
+           finalArgs.shift();
+        }
+        finalArgs.unshift(cliPath);
+      } else if (isWin) {
+        cmd = 'npx.cmd';
+      }
+      
+      console.log(`[${jobId}] Spawning Remotion via: ${cmd}`);
+      console.log(`[${jobId}] Args: ${JSON.stringify(finalArgs)}`);
+      
+      const proc = spawn(cmd, finalArgs, {
         cwd: process.cwd(),
         stdio: ['pipe', 'pipe', 'pipe'],
+        shell: isWin, 
+        windowsHide: true
       });
 
       let stderr = '';
@@ -5987,10 +6034,32 @@ Make it visually engaging with good color choices. Use 2-4 scenes for variety.`
       ];
 
       await new Promise((resolve, reject) => {
-        const proc = spawn('npx', remotionArgs, {
-          cwd: process.cwd(),
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
+      const isWin = process.platform === 'win32';
+      let cmd = 'npx';
+      let finalArgs = [...remotionArgs];
+      
+      const cliPath = path.join(process.cwd(), 'node_modules', '@remotion', 'cli', 'bin', 'remotion.js');
+      
+      if (existsSync(cliPath)) {
+        cmd = 'node';
+        // When calling the script via node, we don't need 'remotion' if it was there as an npx arg
+        if (finalArgs[0] === 'remotion') {
+           finalArgs.shift();
+        }
+        finalArgs.unshift(cliPath);
+      } else if (isWin) {
+        cmd = 'npx.cmd';
+      }
+      
+      console.log(`[${jobId}] Spawning Remotion via: ${cmd}`);
+      console.log(`[${jobId}] Args: ${JSON.stringify(finalArgs)}`);
+      
+      const proc = spawn(cmd, finalArgs, {
+        cwd: process.cwd(),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: isWin, 
+        windowsHide: true
+      });
 
         let stderr = '';
         proc.stderr.on('data', (data) => {
@@ -6527,15 +6596,38 @@ async function handleRenderFromConcept(req, res, sessionId) {
       '--height', String(height),
       '--codec', 'h264',
       '--overwrite',
-      '--gl=angle', // Use Metal GPU acceleration on macOS
+      '--gl=angle',
+      '--timeout', '60000',
     ];
 
     console.log(`[${jobId}] Remotion command: npx ${remotionArgs.join(' ')}`);
 
     await new Promise((resolve, reject) => {
-      const proc = spawn('npx', remotionArgs, {
+      const isWin = process.platform === 'win32';
+      let cmd = 'npx';
+      let finalArgs = [...remotionArgs];
+      
+      const cliPath = path.join(process.cwd(), 'node_modules', '@remotion', 'cli', 'bin', 'remotion.js');
+      
+      if (existsSync(cliPath)) {
+        cmd = 'node';
+        // When calling the script via node, we don't need 'remotion' if it was there as an npx arg
+        if (finalArgs[0] === 'remotion') {
+           finalArgs.shift();
+        }
+        finalArgs.unshift(cliPath);
+      } else if (isWin) {
+        cmd = 'npx.cmd';
+      }
+      
+      console.log(`[${jobId}] Spawning Remotion via: ${cmd}`);
+      console.log(`[${jobId}] Args: ${JSON.stringify(finalArgs)}`);
+      
+      const proc = spawn(cmd, finalArgs, {
         cwd: process.cwd(),
         stdio: ['pipe', 'pipe', 'pipe'],
+        shell: isWin, 
+        windowsHide: true
       });
 
       let stdout = '';
@@ -6885,15 +6977,38 @@ Pick phrases that are spread throughout the video. Each phrase should be 2-6 wor
       '--height', String(height),
       '--codec', 'h264',
       '--overwrite',
-      '--gl=angle', // Use Metal GPU acceleration on macOS
+      '--gl=angle',
+      '--timeout', '60000',
     ];
 
     console.log(`[${jobId}] Remotion command: npx ${remotionArgs.join(' ')}`);
 
     await new Promise((resolve, reject) => {
-      const proc = spawn('npx', remotionArgs, {
+      const isWin = process.platform === 'win32';
+      let cmd = 'npx';
+      let finalArgs = [...remotionArgs];
+      
+      const cliPath = path.join(process.cwd(), 'node_modules', '@remotion', 'cli', 'bin', 'remotion.js');
+      
+      if (existsSync(cliPath)) {
+        cmd = 'node';
+        // When calling the script via node, we don't need 'remotion' if it was there as an npx arg
+        if (finalArgs[0] === 'remotion') {
+           finalArgs.shift();
+        }
+        finalArgs.unshift(cliPath);
+      } else if (isWin) {
+        cmd = 'npx.cmd';
+      }
+      
+      console.log(`[${jobId}] Spawning Remotion via: ${cmd}`);
+      console.log(`[${jobId}] Args: ${JSON.stringify(finalArgs)}`);
+      
+      const proc = spawn(cmd, finalArgs, {
         cwd: process.cwd(),
         stdio: ['pipe', 'pipe', 'pipe'],
+        shell: isWin, 
+        windowsHide: true
       });
 
       proc.stdout.on('data', (data) => {
@@ -7237,13 +7352,36 @@ Use specific terms, concepts, and themes from the transcript.`;
       '--height', String(height),
       '--codec', 'h264',
       '--overwrite',
-      '--gl=angle', // Use Metal GPU acceleration on macOS
+      '--gl=angle',
+      '--timeout', '60000',
     ];
 
     await new Promise((resolve, reject) => {
-      const proc = spawn('npx', remotionArgs, {
+      const isWin = process.platform === 'win32';
+      let cmd = 'npx';
+      let finalArgs = [...remotionArgs];
+      
+      const cliPath = path.join(process.cwd(), 'node_modules', '@remotion', 'cli', 'bin', 'remotion.js');
+      
+      if (existsSync(cliPath)) {
+        cmd = 'node';
+        // When calling the script via node, we don't need 'remotion' if it was there as an npx arg
+        if (finalArgs[0] === 'remotion') {
+           finalArgs.shift();
+        }
+        finalArgs.unshift(cliPath);
+      } else if (isWin) {
+        cmd = 'npx.cmd';
+      }
+      
+      console.log(`[${jobId}] Spawning Remotion via: ${cmd}`);
+      console.log(`[${jobId}] Args: ${JSON.stringify(finalArgs)}`);
+      
+      const proc = spawn(cmd, finalArgs, {
         cwd: process.cwd(),
         stdio: ['pipe', 'pipe', 'pipe'],
+        shell: isWin, 
+        windowsHide: true
       });
 
       let stdout = '';
@@ -7627,6 +7765,8 @@ async function handleProcessAsset(req, res, sessionId) {
 // ============== SERVER ==============
 
 const server = http.createServer(async (req, res) => {
+  // Diagnostic: Log all incoming requests
+  console.log(`[${new Date().toISOString()}] Incoming Request: ${req.method} ${req.url}`);
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');

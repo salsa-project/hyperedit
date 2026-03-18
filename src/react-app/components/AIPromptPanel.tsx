@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Wand2, Clock, Terminal, CheckCircle, Loader2, VolumeX, FileVideo, Type, Image, Zap, X, Scissors, Plus, Film, Music, MapPin, Timer, ImagePlus, Move } from 'lucide-react';
+import { Sparkles, Send, Wand2, Clock, Terminal, CheckCircle, Loader2, VolumeX, FileVideo, Type, Image, Zap, X, Scissors, Plus, Film, Music, MapPin, Timer, ImagePlus, Move, Copy, Braces } from 'lucide-react';
 import type { TimelineClip, Track, Asset } from '@/react-app/hooks/useProject';
 import { MOTION_TEMPLATES, type TemplateId } from '@/remotion/templates';
 import MotionGraphicsPanel from './MotionGraphicsPanel';
@@ -254,6 +254,8 @@ export default function AIPromptPanel({
   });
   const [pendingQuestion, setPendingQuestion] = useState<ClarifyingQuestion | null>(null);
   const [pendingAnimationConcept, setPendingAnimationConcept] = useState<AnimationConcept | null>(null);
+  const [isManualMode, setIsManualMode] = useState(false);
+  const [manualJson, setManualJson] = useState('');
 
   // Intentionally unused - kept for backwards compatibility
   void _onCreateContextualAnimation;
@@ -429,6 +431,24 @@ export default function AIPromptPanel({
           continue;
         }
 
+        // Support .json files for Manual Mode
+        if (file.name.endsWith('.json')) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const content = event.target?.result as string;
+            if (content) {
+              setManualJson(content);
+              setIsManualMode(true);
+              setChatHistory(prev => [...prev, {
+                type: 'assistant',
+                text: `📄 **JSON file "${file.name}" loaded!**\n\nManual Mode has been enabled and the JSON content is ready in the box above. Click Send to execute.`,
+              }]);
+            }
+          };
+          reader.readAsText(file);
+          continue;
+        }
+
         const asset = await onUploadAttachment(file);
         if (asset && (asset.type === 'image' || asset.type === 'video')) {
           setAttachedAssets(prev => [...prev, {
@@ -484,6 +504,28 @@ export default function AIPromptPanel({
     e.stopPropagation();
     setIsDragOverChat(false);
 
+    // 1. Handle External Files (Dropped from OS)
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (file.name.endsWith('.json')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const content = event.target?.result as string;
+          if (content) {
+            setManualJson(content);
+            setIsManualMode(true);
+            setChatHistory(prev => [...prev, {
+              type: 'assistant',
+              text: `📄 **JSON file "${file.name}" dropped!**\n\nManual Mode has been enabled. Click Send to execute the command/animation.`,
+            }]);
+          }
+        };
+        reader.readAsText(file);
+        return;
+      }
+    }
+
+    // 2. Handle Internal Assets (Dragged from Library)
     const assetData = e.dataTransfer.getData('application/x-hyperedit-asset');
     if (!assetData) return;
 
@@ -1950,9 +1992,119 @@ export default function AIPromptPanel({
     }
   };
 
+  const handleCopySystemPrompt = () => {
+    const systemPrompt = `You are a professional Video Editor AI assistant for the "HyperEdit" application.
+Your goal is to help the user edit their video by providing valid JSON responses that the application can execute directly.
+
+Depending on the user's request, you should return ONE of the following JSON structures:
+
+1. FOR VIDEO EDITS (FFmpeg):
+{
+  "command": "ffmpeg -i input.mp4 ... output.mp4",
+  "explanation": "Briefly explain what this edit does"
+}
+*Use 'input.mp4' for the source and 'output.mp4' for the destination.*
+
+2. FOR ANIMATIONS (Remotion storyboard):
+{
+  "concept": {
+    "type": "intro|outro|transition|highlight",
+    "contentSummary": "Summary of video content",
+    "backgroundColor": "#0a0a0a",
+    "scenes": [
+      {
+        "id": "unique-id",
+        "type": "title|subtitle|list|stats|image|gif",
+        "duration": 3,
+        "content": { "title": "...", "subtitle": "...", ... }
+      }
+    ],
+    "totalDuration": 10
+  }
+}
+
+USER REQUEST:
+${buildReferenceContext()}${prompt || "Analyze the video and suggest an edit or animation."}
+
+RETURN ONLY THE RAW JSON. NO MARKDOWN, NO EXPLANATION OUTSIDE THE JSON.`;
+
+    navigator.clipboard.writeText(systemPrompt);
+    setChatHistory(prev => [...prev, {
+      type: 'assistant',
+      text: '📋 **System Prompt copied to clipboard!**\n\n1. Paste it into the [Gemini website](https://gemini.google.com/).\n2. Copy the JSON response they give you.\n3. Paste that JSON into the box above and click Send.',
+    }]);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!prompt.trim()) return;
+
+    // In Manual Mode, we allow empty prompt if manualJson is provided
+    if (!prompt.trim() && (!isManualMode || !manualJson.trim())) return;
+
+    // Handle Manual JSON Submission
+    console.log('[AIPromptPanel] Submission - isManual:', isManualMode, 'manualJson length:', manualJson.trim().length);
+
+    if (isManualMode && manualJson.trim()) {
+      setChatHistory(prev => [...prev, { type: 'assistant', text: `🔍 **Diagnostic:** Starting Manual Submission... (Manual Mode: ${isManualMode}, JSON Length: ${manualJson.length})` }]);
+      try {
+        // Strip markdown backticks if present
+        let cleanedJson = manualJson.trim();
+        if (cleanedJson.startsWith('```json')) {
+          cleanedJson = cleanedJson.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        } else if (cleanedJson.startsWith('```')) {
+          cleanedJson = cleanedJson.replace(/^```\s*/, '').replace(/\s*```$/, '');
+        }
+
+        const parsed = JSON.parse(cleanedJson);
+        setManualJson(''); // Clear after parsing
+
+        // Route based on structure
+        if (parsed.command) {
+          // Manual FFmpeg Edit
+          setChatHistory(prev => [...prev, { type: 'user', text: `[Manual JSON] Applying FFmpeg: ${parsed.explanation || 'Direct command'}` }]);
+          setChatHistory(prev => [...prev, {
+            type: 'assistant',
+            text: parsed.explanation || 'Executing manual FFmpeg command...',
+            command: parsed.command,
+            applied: false
+          }]);
+          return;
+        } else if (parsed.concept || parsed.scenes) {
+          // Manual Animation Render
+          const concept = parsed.concept || parsed;
+          setChatHistory(prev => [...prev, { type: 'user', text: `[Manual JSON] Rendering Animation: ${concept.contentSummary || 'Custom Concept'}` }]);
+
+          if (!onRenderFromConcept) {
+            throw new Error('Animation rendering is not available in this view.');
+          }
+
+          setIsProcessing(true);
+          setProcessingStatus('Rendering manual animation concept...');
+
+          try {
+            const result = await onRenderFromConcept(concept);
+            setChatHistory(prev => [...prev, {
+              type: 'assistant',
+              text: `✅ Manual animation rendered successfully!\n\nDuration: ${result.duration}s`,
+              applied: true,
+              animationAssetId: result.assetId
+            }]);
+          } finally {
+            setIsProcessing(false);
+            setProcessingStatus('');
+          }
+          return;
+        } else {
+          throw new Error('Invalid JSON structure. Must contain "command" or "concept/scenes".');
+        }
+      } catch (error) {
+        setChatHistory(prev => [...prev, {
+          type: 'assistant',
+          text: `❌ Error parsing Manual JSON: ${error instanceof Error ? error.message : 'Invalid JSON'}. Please ensure you copied the entire response from Gemini.`,
+        }]);
+        return;
+      }
+    }
 
     const referenceContext = buildReferenceContext();
     const userMessage = prompt.trim();
@@ -2295,11 +2447,25 @@ export default function AIPromptPanel({
       )}
       {/* Header */}
       <div className="p-4 border-b border-zinc-800/50">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-amber-500 rounded-lg flex items-center justify-center">
-            <Sparkles className="w-4 h-4" />
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-amber-500 rounded-lg flex items-center justify-center">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <h2 className="font-semibold">HyperEdit AI</h2>
           </div>
-          <h2 className="font-semibold">HyperEdit AI</h2>
+          <button
+            onClick={() => setIsManualMode(!isManualMode)}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+              isManualMode
+                ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/20'
+                : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'
+            }`}
+            title={isManualMode ? 'Switch to AI API Mode' : 'Switch to Manual Copy-Paste Mode'}
+          >
+            {isManualMode ? <Braces className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
+            {isManualMode ? 'Manual Mode' : 'API Mode'}
+          </button>
         </div>
         <p className="text-xs text-zinc-400">
           Describe what you want to do with your video
@@ -2588,6 +2754,36 @@ export default function AIPromptPanel({
               >
                 Add Captions
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Mode Input Area */}
+      {isManualMode && (
+        <div className="px-4 pb-2">
+          <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[10px] font-bold text-purple-400 uppercase tracking-wider">
+                <Braces className="w-3 h-3" />
+                Paste Gemini JSON
+              </div>
+              <button
+                onClick={handleCopySystemPrompt}
+                className="flex items-center gap-1.5 px-2 py-1 bg-purple-500/20 hover:bg-purple-500/30 rounded text-[10px] text-purple-300 transition-colors"
+              >
+                <Copy className="w-3 h-3" />
+                Copy System Prompt
+              </button>
+            </div>
+            <textarea
+              value={manualJson}
+              onChange={(e) => setManualJson(e.target.value)}
+              placeholder='Paste the JSON response from Gemini here... e.g. {"command": "...", "explanation": "..."}'
+              className="w-full h-24 bg-black/40 border border-purple-500/30 rounded-lg p-2 text-xs font-mono text-purple-200 placeholder:text-purple-500/30 focus:outline-none focus:border-purple-500/50 transition-colors resize-none"
+            />
+            <div className="text-[9px] text-purple-400/60 leading-tight">
+              Tip: In Gemini, ask for "JSON only with command and explanation fields" for edits, or a "storyboard concept JSON" for animations.
             </div>
           </div>
         </div>
@@ -2945,11 +3141,17 @@ export default function AIPromptPanel({
             {/* Send Button */}
             <button
               type="submit"
-              disabled={!prompt.trim() || isProcessing || !hasVideo}
-              className="w-8 h-8 bg-gradient-to-r from-orange-500 to-amber-500 disabled:from-zinc-700 disabled:to-zinc-700 rounded-lg flex items-center justify-center transition-all hover:shadow-lg hover:shadow-orange-500/50 disabled:shadow-none"
+              disabled={(!prompt.trim() && !manualJson.trim()) || isProcessing || !hasVideo}
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                isManualMode && manualJson.trim()
+                  ? 'bg-purple-500 hover:bg-purple-600 shadow-lg shadow-purple-500/50'
+                  : 'bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:from-zinc-700 disabled:to-zinc-700 hover:shadow-lg hover:shadow-orange-500/50'
+              } disabled:shadow-none`}
             >
               {isProcessing ? (
                 <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+              ) : isManualMode && manualJson.trim() ? (
+                <Braces className="w-4 h-4 text-white" />
               ) : (
                 <Send className="w-4 h-4" />
               )}
